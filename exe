@@ -1,0 +1,176 @@
+#python baybeh
+
+import numpy as np
+from scipy.stats import chi2
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.primitives import hashes
+import os
+import matplotlib.pyplot as plt
+from PIL import Image
+import tkinter as tk
+from tkinter import filedialog, messagebox
+
+class ChaoticMap:
+    def __init__(self, map_type='logistic'):
+        self.map_type = map_type
+
+    def logistic_map(self, x, r):
+        return r * x * (1 - x)
+
+    def tent_map(self, x, mu):
+        if x < 0.5:
+            return mu * x
+        return mu * (1 - x)
+
+    def henon_map(self, x, y, a=1.4, b=0.3):
+        x_next = 1 - a * x * x + y
+        y_next = b * x
+        return x_next, y_next
+
+    def iterate(self, x, y=None, param=None, iterations=1):
+        if self.map_type == 'logistic':
+            for _ in range(iterations):
+                x = self.logistic_map(x, param)
+        elif self.map_type == 'tent':
+            for _ in range(iterations):
+                x = self.tent_map(x, param)
+        elif self.map_type == 'henon':
+            for _ in range(iterations):
+                x, y = self.henon_map(x, y, a=param)
+        return x, y
+
+class NISTTests:
+    @staticmethod
+    def frequency_test(binary_data):
+        n = len(binary_data)
+        sum_bits = sum(1 if bit == '1' else -1 for bit in binary_data)
+        s_obs = abs(sum_bits) / np.sqrt(n)
+        p_value = 2 * (1 - chi2.cdf(s_obs**2, 1))
+        return p_value >= 0.01
+
+    @staticmethod
+    def runs_test(binary_data):
+        n = len(binary_data)
+        pi = sum(1 for bit in binary_data if bit == '1') / n
+        v_obs = 1 + sum(1 for i in range(n-1) if binary_data[i] != binary_data[i+1])
+        denominator = np.sqrt(2 * n * pi * (1 - pi))
+        if denominator == 0:
+            return False
+        z = abs(v_obs - 2 * n * pi * (1 - pi)) / denominator
+        p_value = 2 * (1 - chi2.cdf(z**2, 1))
+        return p_value >= 0.01
+
+class ChaoticImageGenerator:
+    def __init__(self, width=256, height=256, map_type='logistic'):
+        self.width = width
+        self.height = height
+        self.chaotic_map = ChaoticMap(map_type)
+        self.image_data = np.zeros((height, width, 3), dtype=np.uint8)
+
+    def generate_sequence(self, x0, param, iterations):
+        x, y = x0, 0.1 if self.chaotic_map.map_type == 'henon' else None
+        sequence = []
+        for _ in range(iterations):
+            x, y = self.chaotic_map.iterate(x, y, param)
+            sequence.append(x)
+        return sequence
+
+    def normalize_sequence(self, sequence):
+        min_val, max_val = min(sequence), max(sequence)
+        if max_val == min_val:
+            return [0] * len(sequence)
+        return [(x - min_val) / (max_val - min_val) for x in sequence]
+
+    def sequence_to_binary(self, sequence, threshold=0.5):
+        return ''.join('1' if x > threshold else '0' for x in sequence)
+
+    def derive_key(self, sequence):
+        binary_data = self.sequence_to_binary(sequence)
+        salt = os.urandom(16)
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=100000,
+        )
+        key = kdf.derive(binary_data.encode())
+        return key
+
+    def generate_image(self, x0, param):
+        sequence = self.generate_sequence(x0, param, self.width * self.height * 3)
+        normalized = self.normalize_sequence(sequence)
+        
+        binary_data = self.sequence_to_binary(normalized)
+        nist = NISTTests()
+        freq_pass = nist.frequency_test(binary_data)
+        runs_pass = nist.runs_test(binary_data)
+        print(f"NIST Frequency Test Passed: {freq_pass}")
+        print(f"NIST Runs Test Passed: {runs_pass}")
+
+        key = self.derive_key(normalized)
+        print(f"Derived Key: {key.hex()}")
+
+        idx = 0
+        for i in range(self.height):
+            for j in range(self.width):
+                for k in range(3):
+                    if idx < len(normalized):
+                        self.image_data[i, j, k] = int(normalized[idx] * 255)
+                        idx += 1
+        return self.image_data
+
+    def save_image(self, filename):
+        image = Image.fromarray(self.image_data)
+        image.save(filename)
+
+class App:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Chaotic Image Generator")
+        self.generator = ChaoticImageGenerator()
+
+        tk.Label(root, text="Initial Condition (x0):").grid(row=0, column=0)
+        self.x0_entry = tk.Entry(root)
+        self.x0_entry.grid(row=0, column=1)
+        self.x0_entry.insert(0, "0.5")
+
+        tk.Label(root, text="Parameter (r, mu, or a):").grid(row=1, column=0)
+        self.param_entry = tk.Entry(root)
+        self.param_entry.grid(row=1, column=1)
+        self.param_entry.insert(0, "3.9")
+
+        tk.Label(root, text="Map Type:").grid(row=2, column=0)
+        self.map_var = tk.StringVar(value="logistic")
+        tk.Radiobutton(root, text="Logistic", variable=self.map_var, value="logistic").grid(row=2, column=1)
+        tk.Radiobutton(root, text="Tent", variable=self.map_var, value="tent").grid(row=2, column=2)
+        tk.Radiobutton(root, text="Henon", variable=self.map_var, value="henon").grid(row=2, column=3)
+
+        tk.Button(root, text="Generate Image", command=self.generate).grid(row=3, column=0, columnspan=2)
+        tk.Button(root, text="Save Image", command=self.save).grid(row=3, column=2, columnspan=2)
+
+    def generate(self):
+        try:
+            x0 = float(self.x0_entry.get())
+            param = float(self.param_entry.get())
+            map_type = self.map_var.get()
+            
+            self.generator = ChaoticImageGenerator(map_type=map_type)
+            image_data = self.generator.generate_image(x0, param)
+            
+            plt.imshow(image_data)
+            plt.axis('off')
+            plt.show()
+        except ValueError:
+            messagebox.showerror("Error", "Invalid input values")
+
+    def save(self):
+        filename = filedialog.asksaveasfilename(defaultextension=".png", filetypes=[("PNG files", "*.png")])
+        if filename:
+            self.generator.save_image(filename)
+            messagebox.showinfo("Success", "Image saved successfully")
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = App(root)
+    root.mainloop()
+```
