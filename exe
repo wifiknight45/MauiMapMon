@@ -1,5 +1,9 @@
 #python baybeh
 
+# Chaotic Image Generator with NIST Randomness Tests and Cryptographic Key Derivation
+#
+#python baybeh
+
 import numpy as np
 from scipy.stats import chi2
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -7,8 +11,15 @@ from cryptography.hazmat.primitives import hashes
 import os
 import matplotlib.pyplot as plt
 from PIL import Image
-import tkinter as tk
-from tkinter import filedialog, messagebox
+import sys
+import re
+
+try:
+    import tkinter as tk
+    from tkinter import filedialog, messagebox
+    GUI_AVAILABLE = 'DISPLAY' in os.environ
+except ImportError:
+    GUI_AVAILABLE = False
 
 class ChaoticMap:
     def __init__(self, map_type='logistic'):
@@ -62,12 +73,16 @@ class NISTTests:
 
 class ChaoticImageGenerator:
     def __init__(self, width=256, height=256, map_type='logistic'):
+        if map_type not in ['logistic', 'tent', 'henon']:
+            raise ValueError("Invalid map type")
         self.width = width
         self.height = height
         self.chaotic_map = ChaoticMap(map_type)
         self.image_data = np.zeros((height, width, 3), dtype=np.uint8)
 
     def generate_sequence(self, x0, param, iterations):
+        # Secure random seed adjustment
+        x0 = (x0 + int.from_bytes(os.urandom(4), 'big') / 2**32) % 1.0
         x, y = x0, 0.1 if self.chaotic_map.map_type == 'henon' else None
         sequence = []
         for _ in range(iterations):
@@ -91,12 +106,20 @@ class ChaoticImageGenerator:
             algorithm=hashes.SHA256(),
             length=32,
             salt=salt,
-            iterations=100000,
+            iterations=500000,  # Increased iterations for key stretching
         )
         key = kdf.derive(binary_data.encode())
         return key
 
     def generate_image(self, x0, param):
+        # Parameter bounds check
+        if self.chaotic_map.map_type == 'logistic' and not 0 <= param <= 4:
+            raise ValueError("Logistic map parameter must be between 0 and 4")
+        if self.chaotic_map.map_type == 'tent' and not 0 <= param <= 2:
+            raise ValueError("Tent map parameter must be between 0 and 2")
+        if self.chaotic_map.map_type == 'henon' and not 0 <= param <= 1.4:
+            raise ValueError("Henon map parameter must be between 0 and 1.4")
+
         sequence = self.generate_sequence(x0, param, self.width * self.height * 3)
         normalized = self.normalize_sequence(sequence)
         
@@ -120,6 +143,9 @@ class ChaoticImageGenerator:
         return self.image_data
 
     def save_image(self, filename):
+        # Sanitize filename
+        if not re.match(r'^[\w\-.]+\.png$', filename):
+            raise ValueError("Invalid filename")
         image = Image.fromarray(self.image_data)
         image.save(filename)
 
@@ -151,6 +177,8 @@ class App:
     def generate(self):
         try:
             x0 = float(self.x0_entry.get())
+            if not 0 <= x0 <= 1:
+                raise ValueError("x0 must be between 0 and 1")
             param = float(self.param_entry.get())
             map_type = self.map_var.get()
             
@@ -160,16 +188,43 @@ class App:
             plt.imshow(image_data)
             plt.axis('off')
             plt.show()
-        except ValueError:
-            messagebox.showerror("Error", "Invalid input values")
+        except ValueError as e:
+            messagebox.showerror("Error", str(e))
 
     def save(self):
         filename = filedialog.asksaveasfilename(defaultextension=".png", filetypes=[("PNG files", "*.png")])
         if filename:
-            self.generator.save_image(filename)
-            messagebox.showinfo("Success", "Image saved successfully")
+            try:
+                self.generator.save_image(filename)
+                messagebox.showinfo("Success", "Image saved successfully")
+            except ValueError as e:
+                messagebox.showerror("Error", str(e))
+
+def run_cli():
+    print("Chaotic Image Generator (CLI Mode)")
+    try:
+        x0 = float(input("Enter initial condition (x0, e.g., 0.5): ") or 0.5)
+        if not 0 <= x0 <= 1:
+            raise ValueError("x0 must be between 0 and 1")
+        param = float(input("Enter parameter (r, mu, or a, e.g., 3.9): ") or 3.9)
+        map_type = input("Enter map type (logistic, tent, henon): ") or "logistic"
+        if map_type not in ['logistic', 'tent', 'henon']:
+            raise ValueError("Invalid map type")
+        filename = input("Enter output filename (e.g., output.png): ") or "output.png"
+        if not re.match(r'^[\w\-.]+\.png$', filename):
+            raise ValueError("Invalid filename")
+
+        generator = ChaoticImageGenerator(map_type=map_type)
+        image_data = generator.generate_image(x0, param)
+        generator.save_image(filename)
+        print(f"Image saved as {filename}")
+    except ValueError as e:
+        print(f"Error: {e}")
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = App(root)
-    root.mainloop()
+    if GUI_AVAILABLE and len(sys.argv) == 1:
+        root = tk.Tk()
+        app = App(root)
+        root.mainloop()
+    else:
+        run_cli()
