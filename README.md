@@ -1,7 +1,8 @@
 # MauiMapMon
 1st gen) a chaos-based PRNG using the logistic map to generate cryptographic keys, blending Hawaiian vibes, reggae rhythms, and secure randomness for key generation.
-update
 
+
+2nd GEN:
 # MauiMapMon
 
 MauiMapMon is a Python-based chaotic image generator that leverages chaotic maps (Logistic, Tent, and Henon) to produce random images and derive cryptographic keys. It includes NIST randomness tests to validate sequence randomness and supports both a graphical user interface (GUI) and a command-line interface (CLI) for flexibility across environments.
