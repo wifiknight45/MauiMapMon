@@ -94,3 +94,6 @@ MIT License. See `LICENSE` for details.
 ## Contributing
 
 Contributions are welcome! Please submit issues or pull requests on GitHub.
+
+##acknowledgements: Grok 3 by xAI, Google Colab, Microsoft Copilot were used to generate and modify this python script
+for the purposes of learning and teaching others how to code and understand code. 
