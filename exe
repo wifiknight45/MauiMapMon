@@ -1,7 +1,4 @@
-#python baybeh
 
-# Chaotic Image Generator with NIST Randomness Tests and Cryptographic Key Derivation
-#
 #python baybeh
 
 import numpy as np
